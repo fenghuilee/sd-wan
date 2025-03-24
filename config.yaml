@@ -1,0 +1,20 @@
+server:
+  host: "0.0.0.0"
+  port: 51820
+  cert_file: "certs/server.crt"
+  key_file: "certs/server.key"
+
+client:
+  server_address: "vpn.example.com:51820"
+  device_name: "sd-wan0"
+  mtu: 1500
+
+network:
+  subnet: "10.0.0.0/24"
+  dns: "8.8.8.8"
+  keep_alive: 30
+  reconnect: 5
+
+nat:
+  relay_server: "relay.example.com"
+  relay_port: 51821 
