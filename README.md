@@ -28,7 +28,7 @@
 ### 安装
 
 ```bash
-go install github.com/yourusername/sd-wan@latest
+go install github.com/fenghuilee/sd-wan@latest
 ```
 
 ### 配置
