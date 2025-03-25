@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/yourusername/sd-wan/internal/config"
-	"github.com/yourusername/sd-wan/internal/network"
-	"github.com/yourusername/sd-wan/internal/protocol"
+	"github.com/fenghuilee/sd-wan/internal/config"
+	"github.com/fenghuilee/sd-wan/internal/network"
+	"github.com/fenghuilee/sd-wan/internal/protocol"
 )
 
 var (
