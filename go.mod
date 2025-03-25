@@ -1,4 +1,4 @@
-module github.com/yourusername/sd-wan
+module github.com/fenghuilee/sd-wan
 
 go 1.21
 
