@@ -144,7 +144,7 @@ func handlePackets(tun *network.TUN, conn *net.UDPConn, nat *network.NATTraversa
 	buf := make([]byte, 1500)
 	for {
 		// 从 TUN 接口读取数据包
-		n, err := tun.ReadPacket()
+		n, err := tun.Read(buf)
 		if err != nil {
 			log.Printf("读取数据包失败: %v", err)
 			continue
@@ -154,7 +154,8 @@ func handlePackets(tun *network.TUN, conn *net.UDPConn, nat *network.NATTraversa
 		msg := &protocol.Message{
 			Version: protocol.ProtocolVersion,
 			Type:    protocol.MsgTypeData,
-			Data:    n,
+			Length:  uint16(n),
+			Data:    buf[:n],
 		}
 
 		// 编码消息

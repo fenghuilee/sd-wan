@@ -5,7 +5,7 @@ server:
   key_file: "certs/server.key"
 
 client:
-  server_address: "vpn.example.com:51820"
+  server_address: "127.0.0.1:51820"
   device_name: "sd-wan0"
   mtu: 1500
 
@@ -16,5 +16,5 @@ network:
   reconnect: 5
 
 nat:
-  relay_server: "relay.example.com"
+  relay_server: "127.0.0.1"
   relay_port: 51821 

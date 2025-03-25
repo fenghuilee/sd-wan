@@ -11,134 +11,139 @@ import (
 type NATTraversal struct {
 	relayServer net.IP
 	relayPort   uint16
-	connections map[string]*net.UDPConn
-	mutex       sync.RWMutex
+	connections sync.Map
+}
+
+// Connection NAT连接
+type Connection struct {
+	targetID   string
+	targetIP   net.IP
+	targetPort uint16
+	conn       *net.UDPConn
+	lastSeen   time.Time
 }
 
 // NewNATTraversal 创建新的NAT穿透管理器
 func NewNATTraversal(relayServer net.IP, relayPort uint16) *NATTraversal {
-	return &NATTraversal{
+	nat := &NATTraversal{
 		relayServer: relayServer,
 		relayPort:   relayPort,
-		connections: make(map[string]*net.UDPConn),
 	}
+
+	// 启动连接清理
+	go nat.cleanConnections()
+
+	return nat
 }
 
 // CreateRelayConnection 创建中继连接
 func (n *NATTraversal) CreateRelayConnection(targetID string, targetIP net.IP, targetPort uint16) error {
-	n.mutex.Lock()
-	defer n.mutex.Unlock()
-
-	// 检查是否已存在连接
-	if _, exists := n.connections[targetID]; exists {
-		return fmt.Errorf("连接已存在: %s", targetID)
-	}
-
-	// 创建本地UDP连接
-	localAddr := &net.UDPAddr{
+	// 创建 UDP 连接
+	addr := &net.UDPAddr{
 		IP:   net.IPv4zero,
 		Port: 0,
 	}
-
-	conn, err := net.ListenUDP("udp", localAddr)
+	conn, err := net.ListenUDP("udp", addr)
 	if err != nil {
-		return fmt.Errorf("创建UDP连接失败: %v", err)
+		return fmt.Errorf("创建 UDP 连接失败: %v", err)
 	}
 
-	// 发送连接请求到中继服务器
+	connection := &Connection{
+		targetID:   targetID,
+		targetIP:   targetIP,
+		targetPort: targetPort,
+		conn:       conn,
+		lastSeen:   time.Now(),
+	}
+
+	n.connections.Store(targetID, connection)
+	return nil
+}
+
+// SendData 发送数据
+func (n *NATTraversal) SendData(targetID string, data []byte) error {
+	value, ok := n.connections.Load(targetID)
+	if !ok {
+		return fmt.Errorf("连接不存在: %s", targetID)
+	}
+
+	conn := value.(*Connection)
+	conn.lastSeen = time.Now()
+
+	// 发送到中继服务器
 	relayAddr := &net.UDPAddr{
 		IP:   n.relayServer,
 		Port: int(n.relayPort),
 	}
 
-	// 构建连接请求消息
-	request := fmt.Sprintf("CONNECT:%s:%s:%d", targetID, targetIP.String(), targetPort)
-	_, err = conn.WriteToUDP([]byte(request), relayAddr)
-	if err != nil {
-		conn.Close()
-		return fmt.Errorf("发送连接请求失败: %v", err)
-	}
-
-	// 等待连接建立
-	response := make([]byte, 1024)
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	_, _, err = conn.ReadFromUDP(response)
-	if err != nil {
-		conn.Close()
-		return fmt.Errorf("等待连接响应超时: %v", err)
-	}
-
-	// 存储连接
-	n.connections[targetID] = conn
-	return nil
-}
-
-// SendData 通过中继发送数据
-func (n *NATTraversal) SendData(targetID string, data []byte) error {
-	n.mutex.RLock()
-	conn, exists := n.connections[targetID]
-	n.mutex.RUnlock()
-
-	if !exists {
-		return fmt.Errorf("连接不存在: %s", targetID)
-	}
-
-	// 构建数据包
-	packet := append([]byte("DATA:"), data...)
-	_, err := conn.Write(packet)
+	_, err := conn.conn.WriteToUDP(data, relayAddr)
 	return err
 }
 
 // ReceiveData 接收数据
 func (n *NATTraversal) ReceiveData(targetID string) ([]byte, error) {
-	n.mutex.RLock()
-	conn, exists := n.connections[targetID]
-	n.mutex.RUnlock()
-
-	if !exists {
+	value, ok := n.connections.Load(targetID)
+	if !ok {
 		return nil, fmt.Errorf("连接不存在: %s", targetID)
 	}
 
+	conn := value.(*Connection)
+	conn.lastSeen = time.Now()
+
 	buf := make([]byte, 1500)
-	n, _, err := conn.ReadFromUDP(buf)
+	readLen, _, err := conn.conn.ReadFromUDP(buf)
 	if err != nil {
 		return nil, err
 	}
 
-	// 解析数据包
-	if n < 5 || string(buf[:5]) != "DATA:" {
-		return nil, fmt.Errorf("无效的数据包格式")
+	if readLen <= 0 {
+		return nil, fmt.Errorf("读取数据长度为 0")
 	}
 
-	return buf[5:n], nil
+	return buf[:readLen], nil
 }
 
 // CloseConnection 关闭连接
 func (n *NATTraversal) CloseConnection(targetID string) error {
-	n.mutex.Lock()
-	defer n.mutex.Unlock()
-
-	conn, exists := n.connections[targetID]
-	if !exists {
+	value, ok := n.connections.Load(targetID)
+	if !ok {
 		return fmt.Errorf("连接不存在: %s", targetID)
 	}
 
-	err := conn.Close()
-	delete(n.connections, targetID)
+	conn := value.(*Connection)
+	err := conn.conn.Close()
+	n.connections.Delete(targetID)
 	return err
 }
 
 // Close 关闭所有连接
 func (n *NATTraversal) Close() error {
-	n.mutex.Lock()
-	defer n.mutex.Unlock()
-
-	for _, conn := range n.connections {
-		if err := conn.Close(); err != nil {
-			return err
+	var lastErr error
+	n.connections.Range(func(key, value interface{}) bool {
+		conn := value.(*Connection)
+		if err := conn.conn.Close(); err != nil {
+			lastErr = err
+			return false
 		}
-	}
+		return true
+	})
+	return lastErr
+}
 
-	n.connections = make(map[string]*net.UDPConn)
-	return nil
+// cleanConnections 清理过期连接
+func (n *NATTraversal) cleanConnections() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		now := time.Now()
+		n.connections.Range(func(key, value interface{}) bool {
+			conn := value.(*Connection)
+			if now.Sub(conn.lastSeen) > 10*time.Minute {
+				conn.conn.Close()
+				n.connections.Delete(key)
+			}
+			return true
+		})
+	}
 }

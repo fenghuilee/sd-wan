@@ -56,17 +56,6 @@ type NATMessage struct {
 	RelayPort   uint16
 }
 
-// MessageType 消息类型
-type MessageType uint8
-
-const (
-	TypeHandshake MessageType = iota
-	TypeData
-	TypeKeepAlive
-	TypeRoute
-	TypeNAT
-)
-
 // Protocol 协议处理器
 type Protocol struct {
 	crypto *crypto.Crypto
@@ -138,7 +127,7 @@ func (p *Protocol) Decode(data []byte) (*Message, error) {
 		return nil, errors.New("message too short")
 	}
 
-	msgType := MessageType(data[0])
+	msgType := data[0]
 	payloadLen := binary.BigEndian.Uint32(data[1:5])
 	payload := data[5:]
 
@@ -160,7 +149,7 @@ func (p *Protocol) Decode(data []byte) (*Message, error) {
 
 	return &Message{
 		Version: ProtocolVersion,
-		Type:    uint8(msgType),
+		Type:    msgType,
 		Length:  uint16(len(decryptedPayload)),
 		Data:    decryptedPayload,
 	}, nil
